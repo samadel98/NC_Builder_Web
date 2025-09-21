@@ -1,27 +1,25 @@
-# syntax=docker/dockerfile:1
+# Use micromamba to reproduce the QD_Builder conda env
 FROM mambaorg/micromamba:1.5.8
 
-# Create env with Python + heavy scientific deps (conda-forge = prebuilt binaries)
-RUN micromamba create -y -n app -c conda-forge \
-    python=3.11 \
-    fastapi uvicorn python-multipart pydantic pyyaml \
-    rdkit ase spglib numpy scipy networkx matplotlib \
- && micromamba clean -a -y
+# System deps
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
-SHELL ["bash", "-lc"]
-ENV MAMBA_DOCKERFILE_ACTIVATE=1
+# App
 WORKDIR /app
+COPY api.py index.html attach/ ./
 
-# App code
-COPY . /app
+# Get QD_Builder (core-shell branch) and create env
+RUN git clone -b core-shell --depth 1 https://github.com/nlesc-nano/QD_Builder /opt/QD_Builder && \
+    micromamba create -y -n nc-build -f /opt/QD_Builder/environment.yml && \
+    micromamba install -y -n nc-build fastapi uvicorn && \
+    micromamba clean -a -y
 
-# Install QD_Builder from the 'core-shell' branch – this provides the 'nc-builder' CLI
-RUN pip install --no-cache-dir "git+https://github.com/nlesc-nano/QD_Builder@core-shell"
+# FastAPI app must listen on $PORT and 0.0.0.0
+ENV MAMBA_DEFAULT_ENV=nc-build
+ENV PATH=/opt/conda/envs/nc-build/bin:$PATH
 
-# (Optional) sanity check – prints version at build-time
-RUN python -c "import importlib,sys;print('QD_Builder OK');" && nc-builder --help >/dev/null 2>&1 || true
-
-EXPOSE 8000
-# Render sets $PORT in production; fall back to 8000 locally
-CMD micromamba run -n app uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+# Health endpoint expected by Render
+# (ensure api.py serves /health and /)
+CMD ["bash","-lc","uvicorn api:app --host 0.0.0.0 --port $PORT"]
 
