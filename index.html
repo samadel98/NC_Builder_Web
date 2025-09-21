@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>QD_Builder - NanoCrystal Maker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/3dmol@2.0.4/build/3Dmol-min.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    #tooltip, #info-tooltip { position:absolute; display:none; padding:8px 12px; background:rgba(0,0,0,.8); color:#fff; border-radius:6px; pointer-events:none; z-index:1001; font-size:14px; max-width: 250px; }
+    #loader { position:absolute; inset:0; display:none; z-index:1000; }
+    .spinner { border:4px solid rgba(0,0,0,0.1); border-radius:50%; border-top:4px solid #3b82f6; width:40px; height:40px; animation:spin 1s linear infinite; margin:0 auto 10px; }
+    @keyframes spin { 0%{transform:rotate(0)} 100%{transform:rotate(360deg)} }
+    .drop-zone { border:2px dashed #d1d5db; transition:all .2s; }
+    .drop-zone.drag-over { background:#e0f2fe; border-color:#3b82f6; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:.5rem; padding:1.5rem; }
+    .aspect-btn { background:#f3f4f6; border:1px solid #d1d5db; }
+    .aspect-btn.active { background:#3b82f6; color:#fff; border-color:#3b82f6; }
+    .info-icon { cursor: help; color: #9ca3af; }
+    .info-icon:hover { color: #3b82f6; }
+    /* scrollable panes */
+    #log-output{max-height:280px; overflow-y:auto; white-space:pre-wrap;}
+    #stoichiometry-output{max-height:280px; overflow-y:auto;}
+    /* subtle input borders */
+    .input-thin{border:1px solid #d1d5db; border-radius:0.375rem; padding:0.25rem 0.5rem; background:#fff;}
+    /* apply without touching HTML by targeting ids/classes present */
+    #aspect-x,#aspect-y,#aspect-z,
+    .shell-aspect-x,.shell-aspect-y,.shell-aspect-z,
+    .facet-hkl,.facet-gamma { border:1px solid #d1d5db; border-radius:0.375rem; }
+    /* Stoichiometry chip font control */
+    #stoichiometry-output .atom-chip{
+    font-size: 1rem;      /* increase size here */
+    font-weight: 700;     /* 700 = bold */
+    }
+    #anionic-rows .lig-smiles,#cationic-rows .lig-smiles{width:100%}
+    #anionic-rows .lig-ratio,#cationic-rows .lig-ratio{text-align:center}
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex flex-col md:flex-row h-screen overflow-hidden">
+
+  <div class="w-full md:w-1/3 xl:w-1/4 p-4 md:p-6 bg-gray-50 overflow-y-auto flex-shrink-0">
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">QD_Builder — NanoCrystal Maker</h1>
+    <p class="text-sm text-gray-600 mb-6">Upload a .cif, set parameters, and build your nanocrystal.</p>
+
+    <div class="space-y-6">
+      <div class="card">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-lg font-semibold">1) Core Structure</h2>
+          <span class="info-icon" data-info="Upload the crystallographic information file (.cif) for the core material of the nanocrystal.">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+          </span>
+        </div>
+        <div id="core-drop-zone" class="drop-zone p-6 rounded-lg text-center cursor-pointer bg-gray-50 hover:bg-gray-100">
+          <input type="file" id="core-file-input" class="hidden" accept=".cif">
+          <p id="core-file-name-display" class="mt-2 text-sm text-gray-600">
+            <span class="font-semibold text-blue-600">Click to upload</span> or drag & drop
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">2) Size & Aspect</h2>
+            <span class="info-icon" data-info="Define the overall target size (radius) and shape (aspect ratio) of the nanocrystal core.">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+            </span>
+        </div>
+        <label class="block text-sm font-medium mb-1">Final Radius (Å)</label>
+        <input type="number" id="radius" value="20" step="1" min="1" class="w-full mb-3">
+        <label class="block text-sm font-medium mb-1">Core Aspect ratio</label>
+        <div class="flex space-x-1 rounded-md p-1 bg-gray-200 my-2">
+          <button data-preset="Sphere"   class="aspect-btn active w-full rounded-md py-1 text-sm">Sphere</button>
+          <button data-preset="Platelet" class="aspect-btn w-full rounded-md py-1 text-sm">Platelet</button>
+          <button data-preset="Rod"      class="aspect-btn w-full rounded-md py-1 text-sm">Rod</button>
+          <button data-preset="Custom"   class="aspect-btn w-full rounded-md py-1 text-sm">Custom</button>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <input type="number" id="aspect-x" value="1.0" step="0.1" class="w-full text-center">
+          <input type="number" id="aspect-y" value="1.0" step="0.1" class="w-full text-center">
+          <input type="number" id="aspect-z" value="1.0" step="0.1" class="w-full text-center">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">3) Core Facets</h2>
+            <span class="info-icon" data-info="Specify the crystallographic planes (Miller Indices) and their surface energies (γ) that will define the shape of the core via Wulff construction.">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+            </span>
+        </div>
+        <div class="grid grid-cols-[1fr_1fr_auto] gap-2 items-center text-xs text-gray-500 font-medium mb-1 px-1">
+          <span>Miller Index</span> <span>Facet Energy (γ)</span>
+        </div>
+        <div id="core-facets-container" class="space-y-3 mb-3"></div>
+        <button id="add-core-facet-btn" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition text-sm">+ Add facet</button>
+      </div>
+
+      <div class="card">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">4) Shells</h2>
+            <span class="info-icon" data-info="Add one or more shell layers around the core. Each shell can have its own material, shape, and facets.">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+            </span>
+        </div>
+        <div id="shells-container" class="space-y-4 mb-4"></div>
+        <button id="add-shell-btn" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition text-sm">+ Add Shell</button>
+      </div>
+     
+      <!-- 5) Ligand Passivation -->
+      <div class="card" id="passivation-card">
+        <div class="flex justify-between items-center mb-3">
+	  <h2 class="text-lg font-semibold">5) Ligand Passivation</h2>
+          <span class="info-icon"
+                data-info="Replace Cl/Rb placeholders with organic ligands defined by SMILES. Add one or more ligands and set their ratios. Distribution controls how ratios are applied across sites.">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+          </svg>
+          </span>
+      </div>
+      <div id="passivation-collapsed">
+        <button id="btn-passivation-open"
+                class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition text-sm">
+             Passivate the NC
+        </button>
+      </div>
+   <div id="passivation-panel" class="hidden">  
+        <div class="border-2 border-fuchsia-200 p-3 rounded-lg bg-fuchsia-50">
+          <div class="text-sm font-semibold mb-1 text-fuchsia-800">Anionic ligands</div>
+          
+          <div class="grid grid-cols-[1fr_110px_70px] gap-2 text-xs font-medium text-gray-500 mb-1 px-1">
+            <span class="flex items-center">
+              SMILES
+              <span class="info-icon ml-1"
+                data-info="Write each ligand as a SMILES string. One row per ligand.">
+		<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2z"/></svg>
+              </span> 
+            </span>
+            <span class="flex items-center">
+              Ratio
+              <span class="info-icon ml-1"
+                    data-info="Relative share xᵢ for this ligand. All ratios in this list must sum to 1.0 and their order must match the SMILES. Example: 0.25, 0.50, 0.25.">
+		<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2z"/></svg>      
+              </span>
+            </span>
+            <span></span>
+          </div>
+
+
+          <div id="anionic-rows" class="space-y-2"></div>
+      
+          <button id="btn-add-anion"
+                  class="w-full text-xs bg-fuchsia-100 hover:bg-fuchsia-200 rounded-md py-1">
+            + Add
+          </button>
+      
+          <div class="mt-3">
+            <div class="text-sm font-semibold mb-1 flex items-center">
+              Ligand distribution
+              <span class="info-icon ml-1"
+                    data-info="uniform: interleave ligands to spread them out; segmented: assign in spatial blocks; random: stochastic sampling by ratios.">
+		 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2z"/></svg>
+              </span>
+            </div>
+
+            <label class="inline-flex items-center mr-4 text-sm">
+              <input type="radio" name="cap-dist" value="uniform" checked class="mr-2">uniform
+            </label>
+            <label class="inline-flex items-center mr-4 text-sm">
+              <input type="radio" name="cap-dist" value="segmented" class="mr-2">segmented
+            </label>
+            <label class="inline-flex items-center text-sm">
+              <input type="radio" name="cap-dist" value="random" class="mr-2">random
+            </label>
+          </div>
+      
+          <button id="btn-show-cation"
+                  class="w-full text-sm bg-fuchsia-100 hover:bg-fuchsia-200 rounded-md py-1 mt-3">
+            + Add Cationic Ligand
+          </button>
+      
+          <div id="cationic-block" class="mt-3 hidden">
+            <div class="text-sm font-semibold mb-1 text-fuchsia-800">Cationic ligands</div>
+            <div class="grid grid-cols-[1fr_110px_70px] gap-2 text-xs font-medium text-gray-500 mb-1 px-1">
+              <span>SMILES</span><span>Ratio</span><span></span>
+            </div>
+            <div id="cationic-rows" class="space-y-2"></div>
+            <button id="btn-add-cation"
+                    class="w-full text-xs bg-fuchsia-100 hover:bg-fuchsia-200 rounded-md py-1">
+              + Add
+            </button>
+          </div>
+        </div>
+	  <button id="btn-passivate-now"
+              class="w-full bg-[#460046] hover:bg-[#5a005a] text-white font-bold py-2 px-4 rounded-lg transition text-sm mt-3">
+                Passivate now
+          </button>
+      </div>
+   </div>
+
+      <div class="card">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">6) Build</h2>
+            <span class="info-icon" data-info="Generate the nanocrystal structure. Download options will appear after a successful build.">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+            </span>
+        </div>
+        <div class="flex space-x-2">
+          <button id="generate-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">Build nanocrystal</button>
+          <button id="reset-btn" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition">Reset</button>
+        </div>
+        <div id="download-buttons-container" class="mt-4 space-y-2"></div>
+      </div>
+
+      <div class="card">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">Debug</h2>
+            <span class="info-icon" data-info="View diagnostic information about the application and the last build process.">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+            </span>
+        </div>
+        <button id="btn-dump" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg">Dump diagnostics</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex-grow h-full flex flex-col p-4 md:p-6 gap-4">
+    <div id="container-wrapper" class="h-1/2 bg-white border border-gray-200 rounded-lg relative">
+      <div id="container" class="w-full h-full"></div>
+      <div id="loader" class="bg-gray-800 bg-opacity-50 rounded-lg p-8 text-white text-center flex flex-col items-center justify-center">
+        <div class="spinner"></div><p id="loader-text">Building...</p>
+      </div>
+    </div>
+    <div class="h-1/2 grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="card md:col-span-1">
+        <h2 class="text-lg font-semibold mb-2">Stoichiometry</h2>
+        <div id="charge-warning"></div>
+        <div id="stoichiometry-output" class="text-base space-y-1">No atoms yet.</div>
+      </div>
+      <div class="card md:col-span-1 overflow-y-auto">
+        <h2 class="text-lg font-semibold mb-2">Viewer Parameters</h2>
+        <div class="flex flex-col space-y-2 text-sm">
+          <label class="flex items-center space-x-2 cursor-pointer"><input type="radio" name="style" value="ball-and-stick"><span>Ball & Stick</span></label>
+          <label class="flex items-center space-x-2 cursor-pointer"><input type="radio" name="style" value="space-filling" checked><span>Space Filling</span></label>
+          <label class="flex items-center space-x-2 cursor-pointer"><input type="radio" name="style" value="stick"><span>Sticks</span></label>
+        </div>
+        <div id="color-pickers-container" class="mt-4 text-sm"></div>
+      </div>
+      <div class="card md:col-span-2">
+        <h2 class="text-lg font-semibold mb-2">Terminal</h2>
+        <div id="log-output" class="text-xs bg-gray-800 text-gray-200 font-mono p-2 rounded-md h-full overflow-y-auto">[status] Ready.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tooltip"></div><div id="info-tooltip"></div>
+
+  <script>
+  const API_URL       = "/api/build";
+  const PASSIVATE_URL = "/api/passivate";
+
+  let viewer = null;
+  let coreFile = null;
+  let atomColors = {};
+  let lastXYZ = null;
+
+  const ui = {
+    loader: document.getElementById('loader'),
+    log: document.getElementById('log-output'),
+    dl: document.getElementById('download-buttons-container'),
+    color: document.getElementById('color-pickers-container'),
+    coreName: document.getElementById('core-file-name-display'),
+    chargeWarning: document.getElementById('charge-warning'),
+    stoichiometry: document.getElementById('stoichiometry-output')
+  };
+
+  // ——— viewer init ———
+  function initViewer() {
+    const container = document.getElementById('container');
+    container.innerHTML = '';
+    viewer = $3Dmol.createViewer(container, { backgroundColor: 'white' });
+    viewer.setProjection('orthographic');
+    viewer.resize();
+  }
+
+  // ——— logging/helpers ———
+  function parseOutputNameFromLog(logText){
+  if (!logText) return 'final.xyz';
+  // pick “capped_..._final.xyz” if present, else fall back
+  const m = /(capped_[^\\/\s]*_final\.xyz)/i.exec(logText);
+  if (m) return m[1];
+  const m2 = /Final structure written to:\s*([^\s]+)\s*$/im.exec(logText);
+  if (!m2) return 'final.xyz';
+  return m2[1].trim().split('/').pop() || 'final.xyz';
+  }
+ 
+  function log(msg) {
+    const t = new Date().toLocaleTimeString();
+    ui.log.textContent += `[${t}] ${msg}\n`;
+    ui.log.scrollTop = ui.log.scrollHeight;
+  }
+
+  function showLoader(show, text='Working...') {
+    ui.loader.style.display = show ? 'flex' : 'none';
+    document.getElementById('loader-text').textContent = text;
+  }
+  function normalizeXYZ(s) { return s.replace(/^\uFEFF/, '').replace(/\r/g, ''); }
+  
+  function parseOutputNameFromLog(logText){
+  if (!logText) return 'final.xyz';
+  const m = /Final structure written to:\s*([^\s]+)\s*$/im.exec(logText);
+  if (!m) return 'final.xyz';
+  const fname = m[1].trim().split('/').pop();
+  return fname || 'final.xyz';
+  }
+
+  // ——— UI wiring ———
+  function wireUI() {
+    const btnOpen = document.getElementById('btn-passivation-open');
+    const passCollapsed = document.getElementById('passivation-collapsed');
+    const passPanel = document.getElementById('passivation-panel');
+
+    btnOpen.addEventListener('click', () => {
+    passCollapsed.classList.add('hidden');
+    passPanel.classList.remove('hidden');
+    });
+    
+    const btnPassNow = document.getElementById('btn-passivate-now');
+    if (btnPassNow) {
+      btnPassNow.addEventListener('click', async () => {
+        const cfg = readPassivationUI();
+        const sum = arr => arr.reduce((s,a)=>s+(+a.ratio||0),0);
+        const okA = !cfg.anionic.length  || Math.abs(sum(cfg.anionic)  - 1) < 1e-6;
+        const okC = !cfg.cationic.length || Math.abs(sum(cfg.cationic) - 1) < 1e-6;
+        if (!okA || !okC) { alert('Ratios must sum to 1.0 for each ligand set.'); return; }
+    
+        if (!lastXYZ) { alert('Build a nanocrystal first.'); return; }
+    
+        try {
+          showLoader(true, 'Passivating…');
+          log('[status] Sending /api/passivate …');
+    
+          const fd = new FormData();
+          fd.append('xyz_file', new Blob([lastXYZ], { type: 'text/plain' }), 'final.xyz');
+          fd.append('options', JSON.stringify({
+            cap_distribution:  cfg.dist,
+            cap_anionic_jobs:  cfg.anionic,
+            cap_cationic_jobs: cfg.cationic
+          }));
+    
+          const r = await fetch('http://localhost:8000/api/passivate', { method: 'POST', body: fd });
+          const json = await r.json();
+    
+          if (json.log) {
+            ui.log.textContent = json.log + "\n";
+            ui.log.scrollTop = ui.log.scrollHeight;
+          }
+    
+          if (json.status !== 'success') { throw new Error('passivation failed'); }
+    
+          lastXYZ = json.xyz_passivated || '';
+          if (!lastXYZ) throw new Error('empty XYZ from passivation');
+    
+          renderXYZ(lastXYZ, 0);
+	  const dlName = json.download_name || parseOutputNameFromLog(json.log) || 'capped_final.xyz';
+          setupDownload(lastXYZ, dlName);
+    
+          log('[status] Passivation done.');
+        } catch (e) {
+          log(`[error] passivate failed: ${e}`);
+          alert('Passivation failed. Check the Terminal log.');
+        } finally {
+          showLoader(false);
+        }
+      });
+    }
+
+    // Resize viewer with container
+    new ResizeObserver(() => viewer && viewer.resize()).observe(document.getElementById('container-wrapper'));
+    // Style radios
+    document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', applyStyle));
+    // Core drop zone
+    const dz = document.getElementById('core-drop-zone');
+    const fi = document.getElementById('core-file-input');
+    dz.addEventListener('click', () => fi.click());
+    fi.addEventListener('change', e => {
+      coreFile = e.target.files[0] || null;
+      ui.coreName.innerHTML = coreFile ? `<span class="font-semibold">${coreFile.name}</span>` : `<span class="font-semibold text-blue-600">Click to upload</span> or drag & drop`;
+    });
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag-over'); coreFile = e.dataTransfer.files[0] || null; ui.coreName.innerHTML = coreFile ? `<span class="font-semibold">${coreFile.name}</span>` : `...`; });
+
+    // Buttons
+    document.getElementById('generate-btn').addEventListener('click', onBuild);
+    document.getElementById('reset-btn').addEventListener('click', onReset);
+
+    // Preset buttons
+    document.querySelectorAll('.aspect-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        applyPreset(e.currentTarget.dataset.preset);
+      });
+    });
+    
+    document.getElementById('btn-add-anion').addEventListener('click', () => addLigRow('anionic-rows'));
+    document.getElementById('btn-show-cation').addEventListener('click', () => {
+    document.getElementById('cationic-block').classList.remove('hidden');
+    });
+    document.getElementById('btn-add-cation').addEventListener('click', () => addLigRow('cationic-rows'));
+
+    // Info Icons
+    const infoTooltip = document.getElementById('info-tooltip');
+    document.body.addEventListener('mouseover', e => {
+        const icon = e.target.closest('.info-icon');
+        if (icon) {
+            infoTooltip.textContent = icon.dataset.info;
+            infoTooltip.style.display = 'block';
+        }
+    });
+    document.body.addEventListener('mousemove', e => {
+        if (infoTooltip.style.display === 'block') {
+            infoTooltip.style.left = e.pageX + 15 + 'px';
+            infoTooltip.style.top = e.pageY + 15 + 'px';
+        }
+    });
+    document.body.addEventListener('mouseout', e => {
+        if (e.target.closest('.info-icon')) {
+            infoTooltip.style.display = 'none';
+        }
+    });
+
+
+    // Facets & Shells add buttons
+    document.getElementById('add-core-facet-btn').addEventListener('click', () => {
+      addFacet(document.getElementById('core-facets-container'));
+    });
+    document.getElementById('add-shell-btn').addEventListener('click', addShell);
+
+    // Debug
+    document.getElementById('btn-dump').addEventListener('click', dumpDiagnostics);
+  }
+
+  function dumpDiagnostics() {
+    const rect = document.getElementById('container').getBoundingClientRect();
+    let atoms = 0;
+    try { atoms = viewer?.getModel(0)?.selectedAtoms({}).length || 0; } catch(e){}
+    log(`[diag] container ${Math.round(rect.width)}x${Math.round(rect.height)}, atoms=${atoms}, hasViewer=${!!viewer}`);
+  }
+
+    function readLigRows(containerId) {
+    const rows = [];
+    document.querySelectorAll(`#${containerId} .lig-row`).forEach(r => {
+      const s = (r.querySelector('.lig-smiles')?.value || '').trim();
+      const x = parseFloat(r.querySelector('.lig-ratio')?.value || '0');
+      if (s) rows.push({ smiles: s, ratio: isFinite(x) ? x : 0 });
+    });
+    return rows;
+  }
+  function readPassivationUI() {
+    const dist = document.querySelector('input[name="cap-dist"]:checked')?.value || 'uniform';
+    return {
+      anionic:  readLigRows('anionic-rows'),
+      cationic: readLigRows('cationic-rows'),
+      dist
+    };
+  }
+  
+  // ——— Build flow ———
+  async function onBuild() {
+    if (!coreFile) { alert('Please upload a core .cif file.'); return; }
+
+    // Clear previous results
+    ui.chargeWarning.innerHTML = '';
+    ui.stoichiometry.innerHTML = 'Building...';
+
+    showLoader(true, 'Sending job…');
+    log('[status] Sending /api/build …');
+
+    const formData = new FormData();
+    formData.append('files', coreFile);
+
+    // Gather facets
+    const facets = Array.from(document.querySelectorAll('#core-facets-container > div')).map(div => ({
+      hkl:    div.querySelector('.facet-hkl').value,
+      gamma: parseFloat(div.querySelector('.facet-gamma').value)
+    }));
+
+    // Gather shells
+    const shells = Array.from(document.querySelectorAll('#shells-container > div')).map(shell => {
+      const fcs = Array.from(shell.querySelectorAll('.shell-facets-container > div')).map(fd => ({
+        hkl: fd.querySelector('.facet-hkl').value,
+        gamma: parseFloat(fd.querySelector('.facet-gamma').value)
+      }));
+      return {
+        material_cif: shell.fileObject ? shell.fileObject.name : "",
+        aspect: [
+          parseFloat(shell.querySelector('.shell-aspect-x').value),
+          parseFloat(shell.querySelector('.shell-aspect-y').value),
+          parseFloat(shell.querySelector('.shell-aspect-z').value)
+        ],
+        facets: fcs
+      };
+    }).filter(s => s.material_cif);
+
+    // Append shell CIFs
+    document.querySelectorAll('.shell-file-input').forEach(inp => { if (inp.files && inp.files[0]) formData.append('files', inp.files[0]); });
+    const options = {
+      radius_A: parseFloat(document.getElementById('radius').value),
+      core_cif_filename: coreFile.name,
+      aspect: [
+        parseFloat(document.getElementById('aspect-x').value),
+        parseFloat(document.getElementById('aspect-y').value),
+        parseFloat(document.getElementById('aspect-z').value)
+      ],
+      facets, shells
+    };
+
+    // Add passivation config
+    const cap = readPassivationUI();
+    options.cap_distribution  = cap.dist;
+    options.cap_anionic_jobs  = cap.anionic;
+    options.cap_cationic_jobs = cap.cationic;
+
+    formData.append('options', JSON.stringify(options));
+
+    try {
+      const r = await fetch(API_URL, { method:'POST', body: formData });
+      const json = await r.json();
+      log(`[status] API responded: ${r.status}. status=${json.status}`);
+      log(`[debug] elements="${json.elements}", total_charge=${json.total_charge}`);
+	    if (json.log) {
+               ui.log.textContent = json.log + "\n";
+               ui.log.scrollTop = ui.log.scrollHeight;
+            }
+
+      // CHARGE WARNING CHECK
+      if (json.total_charge !== 0 && json.total_charge !== null) {
+          ui.chargeWarning.innerHTML = `<div class="p-2 mb-3 text-sm text-red-800 rounded-lg bg-red-100 border border-red-400"><strong>Warning:</strong> Structure has a non-neutral charge of <strong>${json.total_charge} e</strong>.</div>`;
+      }
+
+      const xyz = json.xyz_passivated || json.xyz || json.xyz_unpassivated || '';
+      log(`[debug] xyz length=${xyz.length}`);
+      if (!xyz) { log('[error] API returned empty XYZ.'); ui.stoichiometry.innerHTML = 'Error: No structure returned.'; showLoader(false); return; }
+
+      lastXYZ = xyz;
+      createColorPickers(json.elements);
+      window._lastGroupedCounts = json.grouped_counts || null;
+      renderXYZ(xyz, json.total_charge);
+      const dlName = json.download_name || parseOutputNameFromLog(json.log);
+      setupDownload(xyz, dlName);
+      log('[status] Rendered.');
+    } catch (e) {
+      log(`[error] fetch failed: ${e}`);
+      ui.stoichiometry.innerHTML = 'Build failed.';
+    } finally {
+      showLoader(false);
+    }
+  }
+
+  function onReset() {
+    lastXYZ = null; atomColors = {};
+    ui.dl.innerHTML=''; ui.color.innerHTML='';
+    ui.chargeWarning.innerHTML = '';
+    ui.stoichiometry.textContent='No atoms yet.';
+    initViewer(); log('[status] Reset.');
+  }
+  
+  function addLigRow(containerId, smiles='', ratio=1){
+  const id = 'lig-'+Math.random().toString(36).slice(2);
+  const row = `
+    <div id="${id}" class="grid grid-cols-[1fr_110px_70px] gap-2 items-center">
+      <input type="text"
+             class="lig-smiles border border-gray-300 rounded-md p-1 text-sm h-8"
+             placeholder="SMILES" value="${smiles}">
+      <input type="number"
+             class="lig-ratio border border-gray-300 rounded-md p-1 text-sm h-8 text-center"
+             min="0" step="1" value="${ratio}">
+      <button type="button"
+              class="rm-lig bg-red-100 hover:bg-red-200 rounded-md py-1 text-xs">
+        Remove
+      </button>
+    </div>`;
+  const root = document.getElementById(containerId);
+  root.insertAdjacentHTML('beforeend', row);
+  root.lastElementChild.querySelector('.rm-lig').onclick =
+    () => document.getElementById(id).remove();
+  }
+
+// read UI later for backend
+function readPassivationUI(){
+  const read = sel => Array.from(document.querySelectorAll(sel+' > div')).map(r => ({
+    smiles: r.querySelector('.lig-smiles').value.trim(),
+    ratio:  parseFloat(r.querySelector('.lig-ratio').value)
+  })).filter(j => j.smiles);
+
+  const dist = document.querySelector('input[name="cap-dist"]:checked').value;
+  return {
+    dist,
+    anionic: read('#anionic-rows'),
+    cationic: read('#cationic-rows')
+  };
+}
+
+  // ——— Rendering ———
+  function renderXYZ(xyzRaw, totalCharge) {
+    try {
+      initViewer();
+      const xyz = normalizeXYZ(xyzRaw);
+      viewer.addModel(xyz, 'xyz');
+
+      // ATOM HOVER TOOLTIP
+      const tooltip = document.getElementById('tooltip');
+      viewer.setHoverable({}, true, (atom, viewer, event) => {
+          tooltip.innerHTML = `<strong>${atom.elem}</strong> (${atom.x.toFixed(2)}, ${atom.y.toFixed(2)}, ${atom.z.toFixed(2)})`;
+          tooltip.style.left = event.original.pageX + 10 + 'px';
+          tooltip.style.top = event.original.pageY + 10 + 'px';
+          tooltip.style.display = 'block';
+      }, () => {
+          tooltip.style.display = 'none';
+      });
+
+      applyStyle();
+      viewer.zoomTo();
+      viewer.render();
+      setTimeout(() => { viewer.resize(); viewer.render(); }, 0);
+
+      let loaded = 0;
+      try { loaded = viewer.getModel(0).selectedAtoms({}).length; } catch(e){}
+      log(`[debug] 3Dmol loaded atoms=${loaded}`);
+
+      updateStoichiometryFromXYZ(xyz, totalCharge);
+    } catch (e) {
+      log(`[error] addModel/render failed: ${e && e.message ? e.message : e}`);
+    }
+  }
+
+  function applyStyle() {
+    if (!viewer) return;
+    const mode = document.querySelector('input[name="style"]:checked').value;
+  
+    // geometry-only base
+    let base = {};
+    if (mode === 'space-filling')       base = { sphere:{ scale:1.0, colorscheme:'Jmol' } };
+    else if (mode === 'ball-and-stick') base = { stick:{ radius:0.12, colorscheme:'Jmol' }, sphere:{ scale:0.30, colorscheme:'Jmol' } };
+    else                                base = { stick:{ radius:0.15, colorscheme:'Jmol' } };
+  
+    viewer.setStyle({}, {});          // clear
+    viewer.setStyle({}, base);        // default Jmol colors
+  
+    // per-element overrides: same geometry, explicit color, NO colorscheme
+    Object.keys(atomColors).forEach(el => {
+      const styled = JSON.parse(JSON.stringify(base));
+      if (styled.sphere) { delete styled.sphere.colorscheme; styled.sphere.color = atomColors[el]; }
+      if (styled.stick)  { delete styled.stick.colorscheme;  styled.stick.color  = atomColors[el]; }
+      viewer.setStyle({ elem: el }, styled);
+    });
+  
+    viewer.render();
+  }
+
+  function updateStoichiometryFromXYZ(xyz, totalCharge) {
+  const div = ui.stoichiometry;
+  const gc = window._lastGroupedCounts;
+
+  const chip = (el, n) => {
+    const hex = atomColors[el] || `#${(window.$3Dmol.elementColors.Jmol[el] || 0x808080).toString(16).padStart(6,'0')}`;
+    return `<span class="atom-chip inline-flex items-center rounded-md px-2 py-0.5 mr-1 mb-1 border"
+           data-element="${el}"
+           style="border-color:${hex}; color:${hex};">
+            ${el}<span class="ml-1 text-gray-600">· ${n}</span>
+          </span>`;
+  };
+
+  const section = (title, obj) => {
+    const items = Object.entries(obj.by_element || {})
+      .sort(([a],[b]) => a.localeCompare(b))
+      .map(([el,n])=>chip(el,n))
+      .join('');
+    return `<div class="mb-2">
+      <div class="text-sm font-semibold">${title} — Total: ${obj.total}</div>
+      <div class="mt-1">${items || '<span class="text-gray-400 text-xs">—</span>'}</div>
+    </div>`;
+  };
+
+  if (gc && gc.total_atoms) {
+    let html = '';
+    if (totalCharge !== undefined && totalCharge !== null) {
+      const cls  = totalCharge === 0 ? 'bg-green-50 text-green-800 border-green-300' : 'bg-red-50 text-red-800 border-red-300';
+      const sign = totalCharge > 0 ? '+' : '';
+      html += `<div class="mb-2 border rounded-md px-3 py-2 ${cls}">
+                 <strong>Total Charge:</strong> ${sign}${totalCharge} e
+               </div>`;
+    }
+    html += `<div class="text-lg font-semibold mb-1">Total Atoms: ${gc.total_atoms}</div>`;
+    html += section('Core', gc.core || {total:0,by_element:{}});
+    html += section('Shell', gc.shell || {total:0,by_element:{}});
+    html += section('Ligand placeholders', gc.ligand || {total:0,by_element:{}});
+    div.innerHTML = html;
+    return;
+  }
+
+  // fallback: flat counts
+  const lines = xyz.split('\n');
+  const n = parseInt((lines[0] || '').trim(), 10);
+  const counts = {};
+  if (Number.isFinite(n) && n > 0) {
+    for (let i = 2; i < 2 + n && i < lines.length; i++) {
+      const parts = (lines[i] || '').trim().split(/\s+/);
+      if (parts.length >= 4) counts[parts[0]] = (counts[parts[0]] || 0) + 1;
+    }
+  }
+  if (!Object.keys(counts).length) { div.textContent = 'No atoms yet.'; return; }
+  const total = Object.values(counts).reduce((s, v) => s + v, 0);
+  let html = `<div class="text-lg font-semibold mb-1">Total Atoms: ${total}</div>`;
+  html += `<div class="mt-1">` + Object.entries(counts).sort().map(([el,n])=>chip(el,n)).join('') + `</div>`;
+  div.innerHTML = html;
+  }
+
+  function createColorPickers(elementsString) {
+    ui.color.innerHTML = '';
+    if (!elementsString || elementsString === 'unknown') return;
+    atomColors = {};
+    const elements = [...new Set(elementsString.split(','))].sort();
+    const defaultColors = window.$3Dmol.elementColors.Jmol;
+    elements.forEach(el => {
+      const wrap = document.createElement('div'); wrap.className = 'flex items-center justify-between mb-1';
+      const label = document.createElement('label'); label.textContent = `${el}`;
+      const input = document.createElement('input'); input.type = 'color';
+      const initial = defaultColors[el] || 0x808080;
+      input.value = `#${initial.toString(16).padStart(6,'0')}`;
+      input.oninput = (e) => { atomColors[el] = e.target.value; applyStyle(); updateStoichiometryColors(); };
+      wrap.appendChild(label); wrap.appendChild(input); ui.color.appendChild(wrap);
+    });
+  }
+
+  function updateStoichiometryColors() {
+    document.querySelectorAll('#stoichiometry-output .atom-chip').forEach(span => {
+      const el  = span.dataset.element;
+      const hex = atomColors[el] || `#${(window.$3Dmol.elementColors.Jmol[el] || 0x808080).toString(16).padStart(6,'0')}`;
+      span.style.color = hex;
+      span.style.borderColor = hex;
+    });
+  }
+
+  function setupDownload(xyz, name='final.xyz') {
+    ui.dl.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.className = 'w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition text-sm';
+    btn.textContent = `Download ${name}`;
+    btn.onclick = () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([xyz], { type:'text/plain' }));
+      a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    };
+    ui.dl.appendChild(btn);
+  }
+
+  // ——— Facets & shells helpers ———
+  function addFacet(container, hkl='100', gamma=1.0) {
+    const id = `facet-${Date.now()}-${Math.random()}`;
+    const html = `<div id="${id}" class="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+      <input type="text" value="${hkl}" class="facet-hkl w-full">
+      <input type="number" value="${gamma}" step="0.1" class="facet-gamma w-full">
+      <button data-id="${id}" class="bg-gray-200 text-xs hover:bg-red-200 hover:text-red-800 rounded p-2">Remove</button>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+    container.querySelector(`button[data-id="${id}"]`).addEventListener('click', () => document.getElementById(id).remove());
+  }
+
+  let shellCounter = 0;
+  function addShell() {
+    shellCounter++;
+    const shellId = `shell-${shellCounter}`;
+    const facetContainerId = `shell-facets-${shellCounter}`;
+    const html = `<div id="${shellId}" class="border-2 border-blue-200 p-3 rounded-lg bg-blue-50">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-semibold text-blue-800">Shell ${shellCounter}</h3>
+        <button data-id="${shellId}" class="remove-shell-btn text-sm text-red-600 hover:text-red-800 font-semibold">Remove Shell</button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Shell Material CIF</label>
+          <div class="shell-drop-zone drop-zone p-3 rounded-md text-center cursor-pointer bg-blue-100 hover:bg-blue-200">
+            <input type="file" class="shell-file-input hidden" accept=".cif">
+            <p class="shell-file-name-display text-xs text-gray-700">Drop CIF or Click</p>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between">
+              <label class="block text-xs font-medium text-gray-600">Aspect Ratio (optional)</label>
+              <span class="info-icon" data-info="For realistic core@shell growth, the shell's aspect ratio values should be greater than or equal to the core's aspect ratio values.">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" /></svg>
+              </span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-1">
+            <input type="number" value="1.0" step="0.1" class="shell-aspect-x w-full text-center">
+            <input type="number" value="1.0" step="0.1" class="shell-aspect-y w-full text-center">
+            <input type="number" value="1.0" step="0.1" class="shell-aspect-z w-full text-center">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">Facets (optional, inherits from core)</label>
+          <div class="shell-facets-container space-y-2 mt-1 mb-2" id="${facetContainerId}"></div>
+          <button data-container="${facetContainerId}" class="add-shell-facet-btn w-full text-xs bg-blue-100 hover:bg-blue-200 rounded p-1">+ Add shell facet</button>
+        </div>
+      </div>
+    </div>`;
+
+    const container = document.getElementById('shells-container');
+    container.insertAdjacentHTML('beforeend', html);
+
+    const shell = document.getElementById(shellId);
+    shell.querySelector('.remove-shell-btn').addEventListener('click', () => shell.remove());
+
+    // file handling
+    const drop = shell.querySelector('.shell-drop-zone');
+    const input = shell.querySelector('.shell-file-input');
+    const label = shell.querySelector('.shell-file-name-display');
+    drop.onclick = () => input.click();
+    input.onchange = e => { shell.fileObject = e.target.files[0]; label.textContent = e.target.files[0]?.name || 'Drop CIF or Click'; label.classList.add('font-semibold'); };
+    drop.ondragover = e => { e.preventDefault(); drop.classList.add('drag-over'); };
+    drop.ondragleave = () => drop.classList.remove('drag-over');
+    drop.ondrop = e => { e.preventDefault(); drop.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) { shell.fileObject = f; label.textContent = f.name; label.classList.add('font-semibold'); input.files = e.dataTransfer.files; } };
+
+    // inherit core facets
+    const facetContainer = shell.querySelector('.shell-facets-container');
+    Array.from(document.querySelectorAll('#core-facets-container > div')).forEach(fd => {
+      addFacet(facetContainer, fd.querySelector('.facet-hkl').value, parseFloat(fd.querySelector('.facet-gamma').value));
+    });
+    shell.querySelector('.add-shell-facet-btn').addEventListener('click', (e) => {
+      addFacet(document.getElementById(e.target.dataset.container));
+    });
+  }
+
+  // ——— Boot ———
+  initViewer();
+  wireUI();
+
+  // start with a preset + some default facets in the core section
+  (function bootstrapFacets() {
+    applyPreset('Sphere');
+    if (!document.querySelector('#core-facets-container > div')) {
+    addFacet(document.getElementById('core-facets-container'), '100', 1.0);
+    }
+  })();
+
+  function applyPreset(name) {
+    const PRESETS = {
+      Sphere:   { aspect:[1,1,1],   facets:[{hkl:'100',gamma:1}] },
+      Platelet: { aspect:[1,1,0.2], facets:[{hkl:'100',gamma:0.8}] },
+      Rod:      { aspect:[1,0.2,0.2],facets:[{hkl:'100',gamma:0.8}] }
+    };
+    document.querySelectorAll('.aspect-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`.aspect-btn[data-preset="${name}"]`);
+    if (btn) btn.classList.add('active');
+
+    const p = PRESETS[name];
+    if (p) {
+      const [x,y,z] = p.aspect;
+      document.getElementById('aspect-x').value = x;
+      document.getElementById('aspect-y').value = y;
+      document.getElementById('aspect-z').value = z;
+      const c = document.getElementById('core-facets-container');
+      c.innerHTML = '';
+      p.facets.forEach(f => addFacet(c, f.hkl, f.gamma));
+    }
+  }
+  </script>
+</body>
+</html>
